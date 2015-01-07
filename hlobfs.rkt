@@ -128,9 +128,9 @@
            'hlobfs-output
            out
            (lambda (to-write start-idx end-idx buffer? breaks?)
-             (wrap-evt out
-                       (lambda (ev)
-                         (write-out (subbytes to-write start-idx end-idx)))))
+             (handle-evt out
+                         (lambda (ev)
+                           (write-out (subbytes to-write start-idx end-idx)))))
            (lambda ()
              (guard
               (defer (close-port out))

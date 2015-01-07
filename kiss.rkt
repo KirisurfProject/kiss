@@ -148,7 +148,7 @@
       (- end-idx start-idx))
     (lambda ()
       (with-semaphore write-lock
-        (write-pkt (kiss-segment 255 #""))
+        ;(write-pkt (kiss-segment 255 #""))
         (close-port out))
       ))))
 
