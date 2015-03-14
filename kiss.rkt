@@ -56,9 +56,10 @@
   (printf "perm-pub @ client = ~v\n" their-perm-pub)
   (printf "pkhash at client = ~v\n" (sechash their-perm-pub))
   ;; Verify
-  (unless (and (bytes-equal? (sechash their-perm-pub) their-pkhash)
+  (when their-pkhash
+    (unless (and (bytes-equal? (sechash their-perm-pub) their-pkhash)
                (eddsa-authentic? their-perm-pub their-signature their-eph-pub))
-    (error "Server provided incorrect authentication! Man in the middle?"))
+    (error "Server provided incorrect authentication! Man in the middle?")))
   ;; Generate and send my things
   (define-values (eph-priv eph-pub) (ecdh-generate-keys))
   (write-bytes eph-pub out)
@@ -93,7 +94,7 @@
                                                             8
                                                             #f
                                                             #f)])
-                           (bytes-append ctr ctr ctr)))
+                           (bytes-append ctr (make-bytes 16))))
            (set! read-ctr (add1 read-ctr))
            (define thing (read-bytes len in))
            (define plain
@@ -103,9 +104,9 @@
                              (subbytes thing 0 secretbox-mac-length)))
            (match (bytes->kiss-segment plain)
              [(kiss-segment 0 bdy) bdy]
-             [(kiss-segment 255 bdy) (displayln "got eof")
-                                     (set! read-closed? #t)
-                                     eof]))])))
+             [(kiss-segment (not 0) bdy) (displayln "got eof")
+                                         (set! read-closed? #t)
+                                         eof]))])))
   (define (write-pkt thing-har)
     (with-semaphore write-lock
       (define thing (kiss-segment->bytes thing-har))
@@ -118,7 +119,7 @@
                                                        8
                                                        #f
                                                        #f)])
-                      (bytes-append ctr ctr ctr)))
+                      (bytes-append ctr (make-bytes 16))))
       (set! write-ctr (add1 write-ctr))
       (define-values (ciphtext mac)
         (secretbox-seal write-key
@@ -164,7 +165,7 @@
      (copy-port in out))
     (loop)))
 
-(define (kiss-test-client prt their pkhash secr)
+(define (kiss-test-client prt their pkhash)
   (define listener (tcp-listen prt 256 #t))
   (let loop ()
     (define-values (cin cout) (tcp-accept/no-buffer listener))
@@ -172,8 +173,7 @@
      (defer (close-port cin))
      (defer (close-port cout))
      (define-values (__in __out) (tcp-connect/no-buffer "127.0.0.1" their))
-     (define-values (_in _out) (hlobfs-handshake/client secr __in __out))
-     (define-values (in out) (kiss-handshake/client pkhash _in _out))
+     (define-values (in out) (kiss-handshake/client pkhash __in __out))
      (define (destroy)
        (close-port cin)
        (close-port cout)
