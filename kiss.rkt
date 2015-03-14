@@ -31,7 +31,6 @@
   (define signat (eddsa-sign perm-priv eph-pub))
   ;; Public key
   (define perm-pub (eddsa-private->public perm-priv))
-  (printf "perm-pub = ~v\n" perm-pub)
   ;; Write them out
   (write-bytes
    (bytes-append eph-pub
@@ -53,8 +52,6 @@
   (define their-eph-pub (read-bytes ecdh-key-length in))
   (define their-signature (read-bytes eddsa-signature-length in))
   (define their-perm-pub (read-bytes eddsa-public-key-length in))
-  (printf "perm-pub @ client = ~v\n" their-perm-pub)
-  (printf "pkhash at client = ~v\n" (sechash their-perm-pub))
   ;; Verify
   (when their-pkhash
     (unless (and (bytes-equal? (sechash their-perm-pub) their-pkhash)
@@ -79,6 +76,7 @@
   (define read-ctr 0)
   (define write-ctr 0)
   (define read-closed? #f)
+  (define write-closed? #f)
   (define (read-in)
     (with-semaphore read-lock
       (cond
@@ -104,31 +102,29 @@
                              (subbytes thing 0 secretbox-mac-length)))
            (match (bytes->kiss-segment plain)
              [(kiss-segment 0 bdy) bdy]
-             [(kiss-segment (not 0) bdy) (displayln "got eof")
-                                         (set! read-closed? #t)
+             [(kiss-segment (not 0) bdy) (set! read-closed? #t)
                                          eof]))])))
   (define (write-pkt thing-har)
-    (with-semaphore write-lock
-      (define thing (kiss-segment->bytes thing-har))
-      (define len (integer->integer-bytes (+ secretbox-mac-length
-                                             (bytes-length thing))
-                                          2
-                                          #f
-                                          #f))
-      (define nonce (let ([ctr (integer->integer-bytes write-ctr
-                                                       8
-                                                       #f
-                                                       #f)])
-                      (bytes-append ctr (make-bytes 16))))
-      (set! write-ctr (add1 write-ctr))
-      (define-values (ciphtext mac)
-        (secretbox-seal write-key
-                        nonce
-                        thing))
-      (write-bytes (bytes-append len
-                                 mac
-                                 ciphtext) out)
-      ))
+    (define thing (kiss-segment->bytes thing-har))
+    (define len (integer->integer-bytes (+ secretbox-mac-length
+                                           (bytes-length thing))
+                                        2
+                                        #f
+                                        #f))
+    (define nonce (let ([ctr (integer->integer-bytes write-ctr
+                                                     8
+                                                     #f
+                                                     #f)])
+                    (bytes-append ctr (make-bytes 16))))
+    (set! write-ctr (add1 write-ctr))
+    (define-values (ciphtext mac)
+      (secretbox-seal write-key
+                      nonce
+                      thing))
+    (write-bytes (bytes-append len
+                               mac
+                               ciphtext) out)
+    )
   
   (values
    (make-input-port/buffered
@@ -144,12 +140,15 @@
     'kiss-output
     out
     (lambda (to-write start-idx end-idx buffer? breaks?)
-      (write-pkt (kiss-segment 0 (subbytes to-write start-idx
-                                           end-idx)))
+      (with-semaphore write-lock
+        (write-pkt (kiss-segment 0 (subbytes to-write start-idx
+                                           end-idx))))
       (- end-idx start-idx))
     (lambda ()
       (with-semaphore write-lock
-        ;(write-pkt (kiss-segment 255 #""))
+        (when (not write-closed?)
+          (write-pkt (kiss-segment 255 #""))
+          (set! write-closed? #t))
         (close-port out))
       ))))
 
@@ -158,8 +157,7 @@
   (let loop()
     (define-values (__in __out) (tcp-accept/no-buffer listener))
     (yarn
-     (define-values (_in _out) (hlobfs-handshake/server secr __in __out))
-     (define-values (in out) (kiss-handshake/server privk _in _out))
+     (define-values (in out) (kiss-handshake/server privk __in __out))
      (defer (close-port out))
      (defer (close-port in))
      (copy-port in out))
@@ -175,8 +173,6 @@
      (define-values (__in __out) (tcp-connect/no-buffer "127.0.0.1" their))
      (define-values (in out) (kiss-handshake/client pkhash __in __out))
      (define (destroy)
-       (close-port cin)
-       (close-port cout)
        (close-port in)
        (close-port out))
      (yarn
