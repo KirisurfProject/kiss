@@ -25,30 +25,30 @@
     [(hlobfs-segment type body)
      (write-bytes
       (bytes-append
-       (integer->integer-bytes (+ (bytes-length body) 1)
+       (bytes type)
+       (integer->integer-bytes (bytes-length body)
                                2
                                #f
                                #t)
-       (bytes type)
        body) out)]))
 
 (define (hlobfs-segment->bytes thing)
   (match thing
     [(hlobfs-segment type body)
      (bytes-append
-      (integer->integer-bytes (+ (bytes-length body) 1)
+      (bytes type)
+      (integer->integer-bytes (bytes-length body)
                               2
                               #f
                               #t)
-      (bytes type)
       body)]))
 
 (define (hlobfs-junk-bytes n)
   (with-output-to-bytes
-      (lambda ()
-        (hlobfs-segment-write
-         (hlobfs-segment 1 (make-bytes n))
-         (current-output-port)))))
+   (lambda ()
+     (hlobfs-segment-write
+      (hlobfs-segment 1 (make-bytes n))
+      (current-output-port)))))
 
 (define (hlobfs-segment-write/fluff hlo out)
   (define towr
@@ -66,23 +66,24 @@
             (loop (subbytes rem len))])))
 
 (define (hlobfs-segment-read in)
-  (define len (integer-bytes->integer (read-bytes 2 in)
-                                      #f
-                                      #t))
-  (define raa (read-bytes len in))
-  (hlobfs-segment (bytes-ref raa 0)
-                  (subbytes raa 1)))
+  (define hdr (read-bytes 3 in))
+  (define type (bytes-ref hdr 0))
+  (define len
+    (+ (* 256 (bytes-ref hdr 1))
+       (bytes-ref hdr 2)))
+  (define toret (hlobfs-segment type (read-bytes len in)))
+  toret)
 
 ;; Interface functions
 
 (define (hlobfs-handshake/server secret _in _out)
-  ;(define-values (in out) (llobfs-handshake/server secret _in _out))
-  (define-values (in out) (values _in _out))
+  (define-values (in out) (llobfs-handshake/server secret _in _out))
+  ;(define-values (in out) (values _in _out))
   (hlobfs-make-ports in out))
 
 (define (hlobfs-handshake/client secret _in _out)
-  ;(define-values (in out) (llobfs-handshake/client secret _in _out))
-  (define-values (in out) (values _in _out))
+  (define-values (in out) (llobfs-handshake/client secret _in _out))
+  ;(define-values (in out) (values _in _out))
   (hlobfs-make-ports in out))
 
 ;; Core function
@@ -96,27 +97,26 @@
   (define input-closed? #f)
   ;; Read procedure
   (define (read-in)
-    (with-semaphore read-lock
-      (with-handlers ([exn:fail? (lambda (ex) (set! input-closed? #t) eof)])
-        (if input-closed? eof
-            (let retry ()
-              (match (hlobfs-segment-read in)
-                ;; Body segment
-                [(hlobfs-segment 0 body) body]
-                ;; Junk segment, ignore
-                [_ #""]))))))
+    (with-handlers ([exn:fail? (lambda (ex) (set! input-closed? #t) eof)])
+      (if input-closed? eof
+          (let retry ()
+            (match (hlobfs-segment-read in)
+              ;; Body segment
+              [(hlobfs-segment 0 body) body]
+              ;; Junk segment, ignore
+              [_ #""])))))
   ;; Write procedure
   (define (write-out bts)
     (with-semaphore write-lock
       (hlobfs-segment-write/fluff (hlobfs-segment 0 bts) out)
       (yarn-send/async junker 
-                       (flvector-ref
-                        (flexponential-sample 1000.0 1) 0)
-                       (lambda ()
-                         (when (semaphore-try-wait? write-lock)
-                           (guard
-                            (defer (semaphore-post write-lock))
-                            (write-bytes (hlobfs-junk-bytes (hlobfs-sample)) out)))))
+                         (flvector-ref
+                          (flexponential-sample 5000.0 1) 0)
+                         (lambda ()
+                           (when (semaphore-try-wait? write-lock)
+                             (guard
+                              (defer (semaphore-post write-lock))
+                              (write-bytes (hlobfs-junk-bytes (hlobfs-sample)) out)))))
       (bytes-length bts)))
   ;; Thingy
   (values (make-input-port/buffered

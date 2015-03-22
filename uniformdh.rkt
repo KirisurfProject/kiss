@@ -6,6 +6,15 @@
          unidh-calculate-secret
          unidh-key-length)
 
+(define (bytes-reverse bts)
+  (list->bytes (reverse (bytes->list bts))))
+
+(define (number->be num aa)
+  (bytes-reverse (number->le num aa)))
+
+(define (be->number be)
+  (le->number (bytes-reverse be)))
+
 ;; Implements Ian Goldberg's UniformDH scheme.
 
 ;; *** NOT SECURE!!! DO NOT USE FOR OTHER THAN OBFUSCATION!!! TIMING ATTACKS!!! ***
@@ -16,21 +25,21 @@
 
 (define (unidh-generate-keys)
   (define priv (random-bytes unidh-key-length))
-  (bytes-set! priv 0 0)
-  (define publ (number->le
+  (bytes-set! priv (sub1 (/ 1536 8)) 0)
+  (define publ (number->be
                 (with-modulus group-5
-                  (modexpt 2 (le->number priv))) unidh-key-length))
+                  (modexpt 2 (be->number priv))) unidh-key-length))
   (values priv 
           (if (< 0.5 (secrandom))
-              (number->le
+              (number->be
                (- group-5
-                  (le->number publ)) unidh-key-length)
+                  (be->number publ)) unidh-key-length)
               publ)))
 
 (define (unidh-calculate-secret our-priv their-publ)
-  (number->le
+  (number->be
    (with-modulus group-5
-     (modexpt (le->number their-publ) (le->number our-priv)))
+     (modexpt (be->number their-publ) (be->number our-priv)))
    unidh-key-length))
 
 (module+ test

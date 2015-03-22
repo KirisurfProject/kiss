@@ -16,7 +16,7 @@
        (define thing (read-bytes-avail! bts in))
        (cond
          [(eof-object? thing) thing]
-         [else (bytes-copy! bts 0 (read-chug (subbytes bts 0 thing)))
+         [else (atomic (bytes-copy! bts 0 (read-chug (subbytes bts 0 thing))))
                thing]))
      (lambda ()
        (displayln "llobfs closing input")
@@ -32,7 +32,6 @@
           out)
          (- end-idx start-idx))
        (lambda ()
-         (displayln "llobfs closing output")
          (close-output-port out)))))
   (values input output))
 
@@ -42,7 +41,7 @@
   (define ourhash (read-bytes 32 in))
   (unless (bytes-equal? ourhash
                         (sechash server-secret nonce))
-    (error 'llobfs-handshake/server 
+    (error 'llobfs-handshake/server
            "Client failed to prove knowledge of our secret. ~v ~v"
            (sechash ourhash nonce)
            (sechash server-secret nonce)))
@@ -58,8 +57,8 @@
   ;; Define in and out chuggers
   (define read-key (sechash shared-secret #"llobfs-upstream-key"))
   (define write-key (sechash shared-secret #"llobfs-downstream-key"))
-  (define read-chug (salsa20-crypter read-key (make-bytes salsa20-nonce-length)))
-  (define write-chug (salsa20-crypter write-key (make-bytes salsa20-nonce-length)))
+  (define read-chug (chacha20-crypter read-key (make-bytes chacha20-nonce-length)))
+  (define write-chug (chacha20-crypter write-key (make-bytes chacha20-nonce-length)))
   ;; Make ports
   (llobfs-make-ports read-chug write-chug in out))
 
@@ -82,7 +81,7 @@
   ;; In and out chuggers
   (define read-key (sechash shared-secret #"llobfs-downstream-key"))
   (define write-key (sechash shared-secret #"llobfs-upstream-key"))
-  (define read-chug (salsa20-crypter read-key (make-bytes salsa20-nonce-length)))
-  (define write-chug (salsa20-crypter write-key (make-bytes salsa20-nonce-length)))
+  (define read-chug (chacha20-crypter read-key (make-bytes chacha20-nonce-length)))
+  (define write-chug (chacha20-crypter write-key (make-bytes chacha20-nonce-length)))
   ;; Make ports
-  (llobfs-make-ports read-chug write-chug in out)) 
+  (llobfs-make-ports read-chug write-chug in out))
