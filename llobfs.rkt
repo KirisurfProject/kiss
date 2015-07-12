@@ -19,7 +19,6 @@
          [else (atomic (bytes-copy! bts 0 (read-chug (subbytes bts 0 thing))))
                thing]))
      (lambda ()
-       (displayln "llobfs closing input")
        (close-port in))))
   (define output
     (let ()
